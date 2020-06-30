@@ -2,12 +2,12 @@ import logging
 
 from scrapy import signals
 from scrapy.exceptions import NotConfigured
-
-from . import connection
+from .offset_monitor import check
 
 logger = logging.getLogger(__name__)
 
 
+# this example show a plan to close the spider
 class IdleClosedExensions(object):
 
     def __init__(self, idle_number, crawler):
@@ -15,21 +15,6 @@ class IdleClosedExensions(object):
         self.idle_number = idle_number
         self.idle_list = []
         self.idle_count = 0
-        kwargs = {
-            'persist': crawler.settings.getbool('SCHEDULER_PERSIST'),
-            'flush_on_start': crawler.settings.getbool('SCHEDULER_FLUSH_ON_START'),
-            'idle_before_close': crawler.settings.getint('SCHEDULER_IDLE_BEFORE_CLOSE'),
-        }
-        optional = {
-            'dupefilter_key': 'SCHEDULER_DUPEFILTER_KEY',
-            'dupefilter_cls': 'DUPEFILTER_CLASS',
-        }
-        for name, setting_name in optional.items():
-            val = crawler.settings.get(setting_name)
-            if val:
-                kwargs[name] = val
-
-        self.server = connection.get_redis(crawler.settings)
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -52,6 +37,6 @@ class IdleClosedExensions(object):
                     spider.name, self.idle_count, len(self.idle_list))
 
     def spider_idle(self, spider):
-        if self.server.get(spider.name) == 2:
-            self.server.close()
+        res = check('sh kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group group_id')
+        if res == 'finished':
             self.crawler.engine.close_spider(spider, 'closespider_pagecount')

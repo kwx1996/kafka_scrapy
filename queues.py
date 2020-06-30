@@ -6,7 +6,7 @@ class Base(object):
     """Per-spider base queue class"""
 
     def __init__(self, producer: Producer, consumer: Consumer,
-                 spider, topic, serializer):
+                 spider, topic, serializer, server):
         self.producer = producer
         self.consumer = consumer
         self.consumer.subscribe(topic)
@@ -14,6 +14,7 @@ class Base(object):
         self.serializer = serializer
         self.topic = topic
         self.partition = None
+        self.server = server
 
     def _encode_request(self, request):
         """Encode a request object"""
@@ -39,7 +40,6 @@ class Base(object):
 
     def close(self):
         """Clear queue/stack"""
-        self.producer.close()
         self.consumer.close()
 
 
@@ -57,14 +57,7 @@ class KafkaQueue(Base):
 
     def pop(self, timeout=0):
         """Pop a request"""
-        request = self.consumer.poll(timeout=0)
-        if len(self.consumer.assignment()) > 0:
-            if len(self.consumer.assignment()) == 0:
-                self.partition = self.consumer.assignment()[0].partition
-            else:
-                self.partition = []
-                for partitions in self.consumer.assignment():
-                    self.partition.append(partitions[0].partition)
+        request = self.consumer.poll(0)
         if request:
             data = request.value()
             return self._decode_request(data)

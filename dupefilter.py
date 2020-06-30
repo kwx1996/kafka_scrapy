@@ -129,12 +129,9 @@ class RFPDupeFilter(BaseDupeFilter):
         name = self.key + str(sum(map(ord, str_input)) % self.blockNum)
         for seed in range(self.seeds):
             loc = mmh3.hash(str_input, seed, signed=False)
-            # 判断是否在集合中，要求所有的哈希函数得到的偏移值都是1
-            # 如果getbit为0，则说明此元素不在集合中，跳出判断
             if self.server.getbit(name, loc % self.bit_size) == 0:
                 break
         else:
-            # for中所有条件均未跳出，说明所有的偏移值都是1，元素在集合中
             return True
         return False
 
@@ -149,7 +146,7 @@ class RFPDupeFilter(BaseDupeFilter):
         settings = spider.settings
         server = get_redis(settings)
         dupefilter_key = settings.get("SCHEDULER_DUPEFILTER_KEY", defaults.SCHEDULER_DUPEFILTER_KEY)
-        key = dupefilter_key % {'spider': spider.name}
+        key = dupefilter_key.format(spider.name)
         debug = settings.getbool('DUPEFILTER_DEBUG')
         block_num = settings.getint('BLOOMFILTER_BLOCK', defaults.BLOOMFILTER_BLOCK)
         bit_size = settings.getint('BLOOMFILTER_SIZE', defaults.BLOOMFILTER_SIZE)
@@ -204,21 +201,24 @@ class RFPDupeFilter(BaseDupeFilter):
         fp = self.request_fingerprint(request)
         if self._isContains(fp):
             return True
-        self.insert(fp)
+        self._insert(fp)
         return False
 
     def _isContains(self, str_input):
         if not str_input:
             return False
 
-        name = self.key + '_crawled' + str(sum(map(ord, str_input)) % self.blockNum)
+        name = self.key + str(sum(map(ord, str_input)) % self.blockNum)
         for seed in range(self.seeds):
             loc = mmh3.hash(str_input, seed, signed=False)
-            # 判断是否在集合中，要求所有的哈希函数得到的偏移值都是1
-            # 如果getbit为0，则说明此元素不在集合中，跳出判断
-            if self.server.getbit(name, loc % self.bit_size) == 0:
+            if self.server.getbit(name+'_crawled', loc % self.bit_size) == 0:
                 break
         else:
-            # for中所有条件均未跳出，说明所有的偏移值都是1，元素在集合中
             return True
         return False
+
+    def _insert(self, str_input):
+        name = self.key + str(sum(map(ord, str_input)) % self.blockNum)
+        for seed in range(self.seeds):
+            loc = mmh3.hash(str_input, seed, signed=False)
+            self.server.setbit(name+'_crawled', loc % self.bit_size, 1)

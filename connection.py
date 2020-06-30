@@ -34,7 +34,7 @@ def create_producer(bootstrap_servers):
 
 def get_redis(settings):
     params = defaults.REDIS_PARAMS.copy()
-    params.update(settings.getdict('REDIS_PARAMS'))
+    params.update(settings.get('REDIS_PARAMS', defaults.REDIS_PARAMS))
     for source, dest in SETTINGS_PARAMS_MAP.items():
         val = settings.get(source)
         if val:

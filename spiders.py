@@ -7,7 +7,6 @@ from . import kafka_default_settings as defaults
 
 
 class Kafka_Scrapy_Mixin(object):
-    consumer = None
     kafka_topic = None
 
     def setup_kafka(self, crawler=None):
@@ -24,16 +23,20 @@ class Kafka_Scrapy_Mixin(object):
         if settings.get('KAFKA_START_URLS_KEY'):
             pass
         else:
-            self.kafka_topic = self.kafka_topic.format(crawler.settings.get('BOT_NAME'))
+            self.kafka_topic = settings.get('START_TOPIC', self.kafka_topic.format(crawler.settings.get('BOT_NAME')))
         self.create_topic = self.settings.getbool('KAFKA_START_TOPIC_CREATE_AUTO',
                                                   defaults.KAFKA_START_TOPIC_CREATE_AUTO)
         if self.create_topic:
             connection.create_topic_client(self.kafka_topic, bootstrap_servers=settings.get('KAFKA_DEFAULTS_HOST',
-                                                                                            defaults.KAFKA_DEFAULTS_HOST),
-                                           partitions=1, replication_factor=1)
-        self.consumer = connection.create_start_request_consumer(self.name, bootstrap_servers=(
-        settings.get('KAFKA_DEFAULTS_HOST'), defaults.KAFKA_DEFAULTS_HOST))
-        self.consumer.subscribe([self.kafka_topic])
+                                           defaults.KAFKA_DEFAULTS_HOST),
+                                           partitions=settings.get('KAFKA_DEFAULTS_START_PARTITIONS',
+                                           defaults.KAFKA_DEFAULTS_START_PARTITIONS),
+                                           replication_factor=settings.get('KAFKA_DEFAULTS_START_REPLICATION',
+                                           defaults.KAFKA_DEFAULTS_START_REPLICATION))
+        self.consumer_ = connection.create_start_request_consumer(name=settings.get('KAFKA_START_GROUP', self.name),
+                                                                  bootstrap_servers=settings.get('KAFKA_DEFAULTS_HOST',
+                                                                  defaults.KAFKA_DEFAULTS_HOST))
+        self.consumer_.subscribe([self.kafka_topic])
         crawler.signals.connect(self.spider_idle, signal=signals.spider_idle)
 
     def start_requests(self):
@@ -44,11 +47,9 @@ class Kafka_Scrapy_Mixin(object):
         self.logger.info("Wait a start URL from kafka topic '%(kafka_topic)s' ", self.__dict__)
         while found < 1:
             data = None
-            msg = self.consumer.poll(timeout=0.1)
-
+            msg = self.consumer_.poll(0)
             if msg:
                 data = msg.value().decode('utf-8')
-
             if not data:
                 break
             req = self.make_request_from_data(data)

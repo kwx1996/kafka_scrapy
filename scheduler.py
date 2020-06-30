@@ -44,7 +44,6 @@ class Scheduler(object):
     def from_settings(cls, settings):
         kwargs = {
             'persist': settings.getbool('SCHEDULER_PERSIST'),
-            'flush_on_start': settings.getbool('SCHEDULER_FLUSH_ON_START'),
             'idle_before_close': settings.getint('SCHEDULER_IDLE_BEFORE_CLOSE'),
         }
 
@@ -66,9 +65,6 @@ class Scheduler(object):
     def from_crawler(cls, crawler):
         instance = cls.from_settings(crawler.settings)
         instance.stats = crawler.stats
-        idle_number = crawler.settings.getint('IDLE_NUMBER', 360)
-        ext = cls(idle_number, crawler)
-        crawler.signals.connect(ext.spider_idle, signal=signals.spider_idle)
         return instance
 
     def open(self, spider):
@@ -83,7 +79,7 @@ class Scheduler(object):
                                                                         defaults.KAFKA_DEFAULTS_PARTITIONS),
                                            replication_factor=self.settings.get('KAFKA_DEFAULTS_REPLICATION',
                                                                                 defaults.KAFKA_DEFAULTS_REPLICATION))
-        self.consumer = connection.create_consumer(self.spider.name,
+        self.consumer = connection.create_consumer(self.settings.get('GROUP_ID', self.spider.name),
                                                    bootstrap_servers=self.settings.get('KAFKA_DEFAULTS_HOST',
                                                                                        defaults.KAFKA_DEFAULTS_HOST))
         self.producer = connection.create_producer(bootstrap_servers=self.settings.get('KAFKA_DEFAULTS_HOST',
@@ -102,8 +98,9 @@ class Scheduler(object):
                 producer=self.producer,
                 consumer=self.consumer,
                 spider=spider,
-                topic=[self.topic.format(self.spider.name)],
+                topic=[self.settings.get('SPIDER_TOPIC' ,self.topic.format(self.spider.name))],
                 serializer=self.serializer,
+                server=self.server
             )
         except TypeError as e:
             raise ValueError("Failed to instantiate queue class '%s': %s",
@@ -126,33 +123,9 @@ class Scheduler(object):
             self.stats.inc_value('scheduler/dequeued/kafka', spider=self.spider)
         return request
 
-    def close(self):
+    def close(self, reason):
         self.df.clear()
-        self.producer.close()
         self.consumer.close()
 
     def has_pending_requests(self):
         return False
-
-    def spider_idle(self):
-        if isinstance(self.queue.partition, int):
-            self._consume_offset = self.queue.consumer.get_watermark_offsets(
-                partition=TopicPartition(topic=defaults.KAFKA_DEFAULTS_TOPIC,
-                                         partition=self.queue.partition))[1]
-            if self.consume_offset == self._consume_offset:
-                self.check_times += 1
-                if self.check_times >= 2:
-                    self.server.set(self.spider.name, self.check_times)
-            else:
-                self.consume_offset = self._consume_offset
-        elif isinstance(self.queue.partition, list):
-            self._consumers_offset = []
-            for partition in self.queue.partition:
-                self._consumers_offset.append(self.queue.consumer.get_watermark_offsets(
-                    partition=TopicPartition(topic=defaults.KAFKA_DEFAULTS_TOPIC, partition=partition))[1])
-            if self.consumers_offset == self._consumers_offset:
-                self.check_times += 1
-                if self.check_times >= 2:
-                    self.server.set(self.spider.name, self.check_times)
-            else:
-                self.consumers_offset = self._consumers_offset
